@@ -141,7 +141,9 @@ Use a model that is actually present in your `DICTATION_MODELS` list.
 
 ## OpenWhispr Configuration
 
-Configure an OpenAI-compatible provider with:
+Add the adapter in OpenWhispr as a **Cloud Provider**, not a Self-Hosted Provider. The Cloud Provider flow is required for OpenWhispr to discover the adapter's models and send dictation requests to it.
+
+Configure the Cloud Provider with:
 
 | Setting | Value |
 | --- | --- |
