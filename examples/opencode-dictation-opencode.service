@@ -1,0 +1,14 @@
+[Unit]
+Description=OpenCode server for the dictation provider
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/opencode-dictation-provider/env
+# Replace /usr/bin/env opencode with the absolute result of: command -v opencode
+ExecStart=/usr/bin/env opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

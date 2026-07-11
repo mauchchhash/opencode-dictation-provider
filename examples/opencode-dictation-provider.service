@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenCode dictation OpenAI-compatible provider
+After=opencode-dictation-opencode.service
+Requires=opencode-dictation-opencode.service
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/opencode-dictation-provider/env
+# Replace both executables with absolute paths when Node or OpenCode is managed by nvm.
+# Example: /home/alice/.nvm/versions/node/v24.11.0/bin/node
+WorkingDirectory=%h/src/opencode-dictation-provider
+ExecStart=/usr/bin/env node src/server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
