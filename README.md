@@ -21,7 +21,7 @@ command -v node
 command -v opencode
 ```
 
-Install and authenticate OpenCode according to its official documentation before enabling the services. Confirm the models available to your account with:
+Install and authenticate OpenCode according to its official documentation before enabling the services. The adapter runs this command to discover models whenever OpenWhispr requests `/v1/models` or submits a completion:
 
 ```sh
 opencode models
@@ -69,7 +69,7 @@ Edit `~/.config/opencode-dictation-provider/env` and replace both placeholder se
 openssl rand -hex 32
 ```
 
-Keep `DICTATION_DEFAULT_MODEL` inside `DICTATION_MODELS`. Every entry in `DICTATION_MODELS` must use the `provider/model` form and be available through your OpenCode configuration. Remove models you do not use rather than assuming the example list is available to your account.
+Set `OPENCODE_BIN` to the absolute path returned by `command -v opencode` when OpenCode is not already in the `systemd --user` service PATH. The adapter runs `opencode models` on demand; there is no model list or default model to maintain in the environment file.
 
 `DICTATION_DEBUG=false` is the privacy-safe default: the journal records only the completion ID and selected model. Setting it to `true` writes the input and cleaned dictation text to the journal.
 
@@ -137,7 +137,7 @@ curl --request POST http://127.0.0.1:11435/v1/chat/completions \
   --data '{"model":"opencode/deepseek-v4-flash-free","messages":[{"role":"user","content":"um hello there"}]}'
 ```
 
-Use a model that is actually present in your `DICTATION_MODELS` list.
+Use a model returned by `opencode models`.
 
 ## OpenWhispr Configuration
 
@@ -151,7 +151,7 @@ Configure the Cloud Provider with:
 | API key | Value of `DICTATION_API_KEY` |
 | Model | Select one returned by the provider's model-refresh action |
 
-The adapter rejects models not explicitly listed in `DICTATION_MODELS`. It does not support streaming.
+The adapter runs `opencode models` when OpenWhispr refreshes its models and again before forwarding a completion. It rejects a model that is no longer returned by that command. It does not support streaming.
 
 ## Operations
 
@@ -178,8 +178,8 @@ After changing either `.service` file, run `systemctl --user daemon-reload` befo
 | Provider service repeatedly restarts | Run `journalctl --user -u opencode-dictation-provider.service -n 100 -o cat`; ensure both required secrets are set and the Node path is valid. |
 | Cleanup returns a 502 error | Check the OpenCode service journal and confirm OpenCode authentication and the selected model work outside this adapter. |
 | OpenWhispr cannot list models | Confirm the base URL includes `/v1`, the API key is correct, and `curl` to `/v1/models` succeeds. |
-| A model is rejected | Add its exact `provider/model` ID to `DICTATION_MODELS`, ensure it is available in OpenCode, then restart the provider. |
-| systemd cannot find Node or OpenCode | Use absolute executable paths in the installed service files, then daemon-reload and restart. |
+| A model is rejected | Run `opencode models`; select one of its exact `provider/model` IDs and ensure its provider is authenticated. |
+| systemd cannot find Node or OpenCode | Use absolute executable paths in the installed service files and set `OPENCODE_BIN` in the private environment file, then daemon-reload and restart. |
 
 ## Security Notes
 

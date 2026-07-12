@@ -1,6 +1,9 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
+const execFileAsync = promisify(execFile);
 const configuredPort = Number(process.env.PORT ?? 11435);
 const host = process.env.HOST ?? "127.0.0.1";
 const apiKey = process.env.DICTATION_API_KEY;
@@ -8,25 +11,14 @@ const opencodeUrl = (process.env.OPENCODE_URL ?? "http://127.0.0.1:4096").replac
 const opencodeUsername = process.env.OPENCODE_SERVER_USERNAME ?? "opencode";
 const opencodePassword = process.env.OPENCODE_SERVER_PASSWORD;
 const agent = process.env.OPENCODE_AGENT ?? "dictation-cleaner";
-const allowedModels = (process.env.DICTATION_MODELS ?? [
-  "opencode/big-pickle",
-  "opencode/deepseek-v4-flash-free",
-  "openai/gpt-5.3-codex-spark",
-  "opencode/hy3-free",
-  "opencode/mimo-v2.5-free",
-  "opencode/nemotron-3-ultra-free",
-  "opencode/north-mini-code-free",
-].join(",")).split(",").map((value) => value.trim()).filter(Boolean);
-const defaultModel = process.env.DICTATION_DEFAULT_MODEL ?? "opencode/deepseek-v4-flash-free";
+const opencodeBin = process.env.OPENCODE_BIN ?? "opencode";
 const debugLogging = process.env.DICTATION_DEBUG === "true";
 const requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS ?? 30000);
+const modelsCommandTimeoutMs = Number(process.env.MODELS_COMMAND_TIMEOUT_MS ?? 10000);
 const maxInputChars = Number(process.env.MAX_INPUT_CHARS ?? 20000);
 
 if (!apiKey || !opencodePassword) {
   throw new Error("DICTATION_API_KEY and OPENCODE_SERVER_PASSWORD must be set");
-}
-if (!allowedModels.includes(defaultModel)) {
-  throw new Error("DICTATION_DEFAULT_MODEL must be included in DICTATION_MODELS");
 }
 
 function json(response, status, body) {
@@ -55,6 +47,16 @@ function latestUserText(messages) {
     if (typeof message.content === "string") return message.content.trim();
   }
   return null;
+}
+
+export async function listOpenCodeModels() {
+  const { stdout } = await execFileAsync(opencodeBin, ["models"], {
+    timeout: modelsCommandTimeoutMs,
+    maxBuffer: 1024 * 1024,
+  });
+  return [...new Set(stdout.split(/\r?\n/)
+    .map((model) => model.trim())
+    .filter((model) => /^[^/\s]+\/[^/\s]+$/.test(model)))];
 }
 
 async function opencodeFetch(path, options = {}) {
@@ -127,7 +129,7 @@ async function cleanDictation(text, model) {
   }
 }
 
-export function createApp() {
+export function createApp({ listModels = listOpenCodeModels } = {}) {
   return createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       return json(response, 200, { status: "ok" });
@@ -141,10 +143,16 @@ export function createApp() {
       return error(response, 401, "Invalid API key", "authentication_error");
     }
     if (isModelsRequest) {
-      return json(response, 200, {
-        object: "list",
-        data: allowedModels.map((id) => ({ id, object: "model", created: 0, owned_by: "opencode" })),
-      });
+      try {
+        const models = await listModels();
+        return json(response, 200, {
+          object: "list",
+          data: models.map((id) => ({ id, object: "model", created: 0, owned_by: "opencode" })),
+        });
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "Unknown failure";
+        return error(response, 502, `Could not list OpenCode models: ${message}`, "api_error");
+      }
     }
 
     try {
@@ -153,8 +161,12 @@ export function createApp() {
       const text = latestUserText(body.messages);
       if (!text) return error(response, 400, "messages must include a non-empty user text message");
       if (text.length > maxInputChars) return error(response, 400, `Input exceeds ${maxInputChars} characters`);
-      const requestedModel = typeof body.model === "string" && body.model ? body.model : defaultModel;
-      if (!allowedModels.includes(requestedModel)) {
+      if (typeof body.model !== "string" || !body.model) {
+        return error(response, 400, "model must be a non-empty string");
+      }
+      const requestedModel = body.model;
+      const models = await listModels();
+      if (!models.includes(requestedModel)) {
         return error(response, 400, `Unsupported model: ${requestedModel}`);
       }
 

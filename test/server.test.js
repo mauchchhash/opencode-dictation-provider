@@ -6,6 +6,7 @@ process.env.DICTATION_API_KEY = "test-adapter-key";
 process.env.OPENCODE_SERVER_PASSWORD = "test-opencode-password";
 
 const calls = [];
+let availableModels = ["opencode/test-model", "openai/test-model"];
 const opencode = createServer(async (request, response) => {
   let raw = "";
   for await (const chunk of request) raw += chunk;
@@ -28,7 +29,7 @@ before(async () => {
   const opencodePort = opencode.address().port;
   process.env.OPENCODE_URL = `http://127.0.0.1:${opencodePort}`;
   const { createApp } = await import("../src/server.js");
-  app = createApp();
+  app = createApp({ listModels: async () => availableModels });
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
   providerUrl = `http://127.0.0.1:${app.address().port}`;
 });
@@ -53,27 +54,26 @@ test("health endpoint is public", async () => {
   assert.deepEqual(await response.json(), { status: "ok" });
 });
 
-test("lists the fixed dictation model", async () => {
+test("lists models discovered from OpenCode", async () => {
   const response = await fetch(`${providerUrl}/v1/models`, {
     headers: { authorization: "Bearer test-adapter-key" },
   });
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.object, "list");
-  assert.ok(body.data.some((model) => model.id === "opencode/deepseek-v4-flash-free"));
-  assert.ok(body.data.some((model) => model.id === "openai/gpt-5.3-codex-spark"));
+  assert.deepEqual(body.data.map((model) => model.id), availableModels);
 });
 
 test("cleans a dictation through a fresh OpenCode session", async () => {
   const response = await fetch(`${providerUrl}/v1/chat/completions`, {
     method: "POST",
     headers: { authorization: "Bearer test-adapter-key", "content-type": "application/json" },
-    body: JSON.stringify({ model: "opencode/deepseek-v4-flash-free", messages: [{ role: "user", content: "um hello there" }] }),
+    body: JSON.stringify({ model: "opencode/test-model", messages: [{ role: "user", content: "um hello there" }] }),
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).choices[0].message.content, "Cleaned dictation.");
   assert.equal(calls[1].body.agent, "dictation-cleaner");
-  assert.deepEqual(calls[1].body.model, { providerID: "opencode", modelID: "deepseek-v4-flash-free" });
+  assert.deepEqual(calls[1].body.model, { providerID: "opencode", modelID: "test-model" });
 });
 
 test("uses the model selected by the client", async () => {
@@ -85,24 +85,33 @@ test("uses the model selected by the client", async () => {
     const response = await fetch(`${providerUrl}/v1/chat/completions`, {
       method: "POST",
       headers: { authorization: "Bearer test-adapter-key", "content-type": "application/json" },
-      body: JSON.stringify({ model: "openai/gpt-5.3-codex-spark", messages: [{ role: "user", content: "hello" }] }),
+      body: JSON.stringify({ model: "openai/test-model", messages: [{ role: "user", content: "hello" }] }),
     });
     assert.equal(response.status, 200);
     body = await response.json();
   } finally {
     console.info = originalInfo;
   }
-  assert.equal(body.model, "openai/gpt-5.3-codex-spark");
-  assert.deepEqual(calls.at(-2).body.model, { providerID: "openai", modelID: "gpt-5.3-codex-spark" });
+  assert.equal(body.model, "openai/test-model");
+  assert.deepEqual(calls.at(-2).body.model, { providerID: "openai", modelID: "test-model" });
   assert.deepEqual(Object.keys(JSON.parse(logs.at(-1))).sort(), ["completion_id", "event", "model", "timestamp"]);
-  assert.equal(JSON.parse(logs.at(-1)).model, "openai/gpt-5.3-codex-spark");
+  assert.equal(JSON.parse(logs.at(-1)).model, "openai/test-model");
 });
 
-test("rejects models outside the allowlist", async () => {
+test("rejects models not currently returned by OpenCode", async () => {
   const response = await fetch(`${providerUrl}/v1/chat/completions`, {
     method: "POST",
     headers: { authorization: "Bearer test-adapter-key", "content-type": "application/json" },
     body: JSON.stringify({ model: "opencode/not-allowed", messages: [{ role: "user", content: "hello" }] }),
+  });
+  assert.equal(response.status, 400);
+});
+
+test("requires a client-selected model", async () => {
+  const response = await fetch(`${providerUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: "Bearer test-adapter-key", "content-type": "application/json" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
   });
   assert.equal(response.status, 400);
 });
