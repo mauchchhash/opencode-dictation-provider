@@ -1,6 +1,7 @@
 ---
 description: Cleans dictated transcripts without changing their meaning.
 mode: all
+hidden: true
 variant: low
 temperature: 0.1
 permission:
