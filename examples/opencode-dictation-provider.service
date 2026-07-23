@@ -1,7 +1,7 @@
 [Unit]
 Description=OpenCode dictation OpenAI-compatible provider
 After=opencode-dictation-opencode.service
-Requires=opencode-dictation-opencode.service
+Wants=opencode-dictation-opencode.service
 
 [Service]
 Type=simple

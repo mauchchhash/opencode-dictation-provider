@@ -102,6 +102,8 @@ systemctl --user enable --now opencode-dictation-opencode.service
 systemctl --user enable --now opencode-dictation-provider.service
 ```
 
+The provider unit uses `Wants=` rather than a hard dependency on OpenCode. If OpenCode has a temporary startup failure and recovers automatically, the provider remains available instead of staying inactive; requests made before OpenCode is ready return an API error and can be retried.
+
 User services start after login. To keep them running while you are logged out, enable lingering once:
 
 ```sh
